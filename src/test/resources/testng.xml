@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
+<suite name="LoginModuleSuite" parallel="tests" thread-count="3">
+
+    <listeners>
+        <!--<listener class-name="io.qameta.allure.testng.AllureTestNg" />-->
+        <listener class-name="org.bci.utilities.ExtentListener" />
+    </listeners>
+
+   <!-- <test name="LoginTest_Chrome">
+        <parameter name="browser" value="chrome" />
+        <classes>
+            <class name="org.bci.tests.login_module.LoginModuleTest">
+                <methods>
+                    <include name="testPlantAutoSelection" />
+                </methods>
+            </class>
+        </classes>
+    </test>-->
+
+    <test name="LoginModule_Chrome">
+        <!--<parameter name="headless" value="true"/>-->
+        <parameter name="browser" value="chrome" />
+
+        <!--<groups>
+            <run>
+                &lt;!&ndash; Run everything marked with the 'smoke' group &ndash;&gt;
+                <include name="smoke"/>
+                <exclude name="sanity"/>
+            </run>
+        </groups>-->
+        <classes>
+            <class name="org.bci.tests.optivus_loginmodule.LoginModuleTest"/>
+                <!--<methods>
+                    <exclude name="testLogoutFunctionality" />
+                </methods>-->
+        </classes>
+    </test>
+
+
+   <!-- <test name="LoginTest_Firefox">
+        <parameter name="browser" value="firefox" />
+        <classes>
+            <class name="org.bci.tests.login_module.LoginModuleTest">
+
+                <methods>
+                    <include name="verifySuccessfulLoginUsingAutoFill" />
+                </methods>
+            </class>
+        </classes>
+    </test>
+
+    <test name="LoginTest_Safari" enabled="false">
+        <parameter name="browser" value="safari" />
+        <classes>
+            <class name="org.bci.tests.login_module.LoginModuleTest" />
+        </classes>
+    </test>-->
+
+
+</suite>

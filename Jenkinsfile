@@ -1,0 +1,277 @@
+pipeline {
+
+    agent {
+        node {
+            label 'built-in'
+            customWorkspace 'C:\\Project Directory'
+        }
+    }
+
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        disableConcurrentBuilds()
+        skipDefaultCheckout()
+        timeout(time: 60, unit: 'MINUTES')
+    }
+
+    triggers {
+        // Runs daily at 11:30 PM as per Jenkins server timezone
+        cron('30 23 * * *')
+    }
+
+    tools {
+        maven 'MAVEN3 setup in system'
+    }
+
+    environment {
+        PROJECT        = "AUTOMATION PROJECT NAME"
+        REPORT_NAME    = "Extent-Report"
+        DASHBOARD_NOTE = 'Dashboard Notes'
+        EMAIL_LIST     = 'Mail Id's
+
+        // ---- GitHub repo settings ----
+        GIT_REPO_URL   = 'git hub repo url'
+        GIT_BRANCH     = 'master'
+        GIT_CRED_ID    = 'github-pat'
+    }
+
+    parameters {
+
+        choice(
+            name: 'ENV',
+            choices: ['QA', 'UAT', 'PROD'],
+            description: '🌍 Target Environment'
+        )
+
+        choice(
+            name: 'BROWSER',
+            choices: ['Chrome', 'Edge', 'Firefox', 'Safari'],
+            description: '🌐 Browser'
+        )
+
+        choice(
+            name: 'TEST_TYPE',
+            choices: [
+                'DEMO1_MODULE',
+                'DEMO1_MODULE',
+                'DEMO1_MODULE',
+                'DEMO1_MODULE',
+                'DEMO1_MODULE'
+            ],
+            description: '🧪 Test Suite'
+        )
+
+        booleanParam(
+            name: 'SKIP_TESTS',
+            defaultValue: false,
+            description: '⏭️ Build only — skip test execution'
+        )
+    }
+
+    stages {
+
+        stage('🎯 INITIALIZE') {
+            steps {
+                echo """
+=================================================
+PROJECT   : ${PROJECT}
+ENV       : ${params.ENV}
+BROWSER   : ${params.BROWSER}
+TEST TYPE : ${params.TEST_TYPE}
+SKIP TEST : ${params.SKIP_TESTS}
+RUN TIME  : Daily 11:30 PM Jenkins Server Time
+=================================================
+"""
+            }
+        }
+
+        stage('🧹 CLEAN WORKSPACE') {
+            steps {
+                deleteDir()
+            }
+        }
+
+        stage('📥 CHECKOUT CODE') {
+            steps {
+                git branch: "${GIT_BRANCH}",
+                    credentialsId: "${GIT_CRED_ID}",
+                    url: "${GIT_REPO_URL}"
+
+                script {
+                    if (!fileExists('pom.xml')) {
+                        error "ERROR: pom.xml was not found after checkout. Check GIT_REPO_URL / GIT_BRANCH."
+                    }
+                }
+                echo "Checkout completed successfully."
+            }
+        }
+
+        stage('🔧 BUILD PROJECT') {
+            steps {
+                bat 'mvn -q clean compile'
+            }
+        }
+
+        stage('🚀 EXECUTE TESTS') {
+            when {
+                expression {
+                    return !params.SKIP_TESTS
+                }
+            }
+
+            steps {
+                script {
+                    def suiteFiles = [
+                        'DEMO1_MODULE' : 'src/test/resources/student_module.xml',
+                        'DEMO1_MODULE': 'src/test/resources/employee_module.xml',
+                        'DEMO1_MODULE'   : 'src/test/resources/class.xml'
+                    ]
+
+                    def selectedSuite = suiteFiles[params.TEST_TYPE]
+
+                    if (!selectedSuite) {
+                        error "No suite XML mapping found for ${params.TEST_TYPE}"
+                    }
+
+                    if (!fileExists(selectedSuite)) {
+                        error "Suite XML file does not exist: ${selectedSuite}"
+                    }
+
+                    echo "Executing TestNG suite: ${selectedSuite}"
+
+                    try {
+                        bat """
+                            mvn test ^
+                            -Dbrowser=${params.BROWSER} ^
+                            -Denv=${params.ENV} ^
+                            -DsuiteXmlFile=${selectedSuite}
+                        """
+                    } catch (Exception e) {
+                        echo "Tests failed for suite: ${selectedSuite}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
+
+        stage('📊 PUBLISH EXTENT REPORT') {
+            when {
+                expression { return !params.SKIP_TESTS }
+            }
+            steps {
+                publishHTML(target: [
+                    reportDir            : 'reports',
+                    reportFiles          : '*.html',
+                    reportName           : "${REPORT_NAME}",
+                    keepAll              : true,
+                    alwaysLinkToLastBuild: true,
+                    allowMissing         : true
+                ])
+            }
+        }
+    }
+
+    post {
+
+        always {
+            junit allowEmptyResults: true, testResults: '**/target/surefire-reports/*.xml'
+
+            archiveArtifacts artifacts: 'reports/**/*.html, logs/**/*.log, screenshots/**, **/target/surefire-reports/**',
+                             allowEmptyArchive: true
+        }
+
+        success {
+            emailext(
+                to          : "${EMAIL_LIST}",
+                subject     : "✅ ${PROJECT} | SUCCESS | ${params.TEST_TYPE} | Build #${BUILD_NUMBER}",
+                mimeType    : 'text/html',
+                attachLog   : false,
+                attachmentsPattern: 'reports/*.html, logs/*.log',
+                body: """
+                <h3 style="color:#2e7d32;">ℹ️ ${DASHBOARD_NOTE}</h3>
+                <h2 style="color:#2e7d32;">Execution Successful</h2>
+
+                <p><b>Project:</b> ${PROJECT}</p>
+                <p><b>Environment:</b> ${params.ENV}</p>
+                <p><b>Browser:</b> ${params.BROWSER}</p>
+                <p><b>Suite:</b> ${params.TEST_TYPE}</p>
+                <p><b>Build Number:</b> #${BUILD_NUMBER}</p>
+
+                <p>
+                  <a href="${BUILD_URL}">🔗 Open Jenkins Build</a><br>
+                  <a href="${BUILD_URL}${REPORT_NAME}/">📊 Open Extent Report</a>
+                </p>
+
+                <p><b>Attachments:</b></p>
+                <ul>
+                  <li>Extent HTML Report</li>
+                  <li>Automation Log File</li>
+                </ul>
+                """
+            )
+        }
+
+        unstable {
+            emailext(
+                to          : "${EMAIL_LIST}",
+                subject     : "⚠️ ${PROJECT} | UNSTABLE | ${params.TEST_TYPE} | Build #${BUILD_NUMBER}",
+                mimeType    : 'text/html',
+                attachLog   : false,
+                attachmentsPattern: 'reports/*.html, logs/*.log',
+                body: """
+                <h3 style="color:#e65100;">ℹ️ ${DASHBOARD_NOTE}</h3>
+                <h2 style="color:#e65100;">Execution Completed with Some Test Failures</h2>
+
+                <p><b>Project:</b> ${PROJECT}</p>
+                <p><b>Environment:</b> ${params.ENV}</p>
+                <p><b>Browser:</b> ${params.BROWSER}</p>
+                <p><b>Suite:</b> ${params.TEST_TYPE}</p>
+                <p><b>Build Number:</b> #${BUILD_NUMBER}</p>
+
+                <p>
+                  <a href="${BUILD_URL}">🔗 Open Jenkins Build</a><br>
+                  <a href="${BUILD_URL}${REPORT_NAME}/">📊 Open Extent Report</a>
+                </p>
+
+                <p><b>Attachments:</b></p>
+                <ul>
+                  <li>Extent HTML Report</li>
+                  <li>Automation Log File</li>
+                </ul>
+                """
+            )
+        }
+
+        failure {
+            emailext(
+                to          : "${EMAIL_LIST}",
+                subject     : "❌ ${PROJECT} | FAILED | ${params.TEST_TYPE} | Build #${BUILD_NUMBER}",
+                mimeType    : 'text/html',
+                attachLog   : false,
+                attachmentsPattern: 'reports/*.html, logs/*.log',
+                body: """
+                <h3 style="color:#c62828;">ℹ️ ${DASHBOARD_NOTE}</h3>
+                <h2 style="color:#c62828;">Execution Failed</h2>
+
+                <p><b>Project:</b> ${PROJECT}</p>
+                <p><b>Environment:</b> ${params.ENV}</p>
+                <p><b>Browser:</b> ${params.BROWSER}</p>
+                <p><b>Suite:</b> ${params.TEST_TYPE}</p>
+                <p><b>Build Number:</b> #${BUILD_NUMBER}</p>
+
+                <p>
+                  <a href="${BUILD_URL}">🔗 Open Jenkins Build</a><br>
+                  <a href="${BUILD_URL}${REPORT_NAME}/">📊 Open Extent Report</a>
+                </p>
+
+                <p><b>Attachments:</b></p>
+                <ul>
+                  <li>Extent HTML Report</li>
+                  <li>Automation Log File</li>
+                </ul>
+                """
+            )
+        }
+    }
+}

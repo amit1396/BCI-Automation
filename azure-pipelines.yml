@@ -1,0 +1,345 @@
+# ============================================================
+# DEMO UNIVERSITY AUTOMATION
+# Azure DevOps Pipeline
+# ============================================================
+
+trigger: none
+
+# ============================================================
+# USER PARAMETERS
+# These will appear when clicking "Run pipeline"
+# ============================================================
+
+parameters:
+
+- name: ENV
+  displayName: 'Target Environment'
+  type: string
+  default: QA
+  values:
+    - QA
+    - UAT
+    - PROD
+
+- name: BROWSER
+  displayName: 'Browser'
+  type: string
+  default: Chrome
+  values:
+    - Chrome
+    - Edge
+    - Firefox
+
+- name: TEST_TYPE
+  displayName: 'Test Suite'
+  type: string
+  default: MSIT_STUDENT_MODULE
+  values:
+    - MSIT_STUDENT_MODULE
+    - MSIT_EMPLOYEE_MODULE
+    - MSIT_CLASS_MODULE
+    - MSIT_EXAM_MODULE
+    - MSIT_COMBINED_SUITE
+
+- name: SKIP_TESTS
+  displayName: 'Build only - Skip test execution'
+  type: boolean
+  default: false
+
+
+# ============================================================
+# DAILY SCHEDULE
+# Azure cron uses UTC.
+#
+# 11:30 PM IST = 6:00 PM UTC
+# ============================================================
+
+schedules:
+- cron: "0 18 * * *"
+  displayName: 'Daily 11:30 PM IST'
+  branches:
+    include:
+      - master
+  always: true
+
+
+# ============================================================
+# BUILD AGENT
+# ============================================================
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+
+# ============================================================
+# VARIABLES
+# ============================================================
+
+variables:
+  PROJECT: 'DEMO UNIVERSITY AUTOMATION'
+  REPORT_NAME: 'Extent-Report'
+  TZ: 'Asia/Kolkata'
+
+
+# ============================================================
+# STEPS
+# ============================================================
+
+steps:
+
+# ------------------------------------------------------------
+# INITIALIZE
+# ------------------------------------------------------------
+
+- script: |
+    echo "================================================="
+    echo "PROJECT   : $(PROJECT)"
+    echo "ENV       : ${{ parameters.ENV }}"
+    echo "BROWSER   : ${{ parameters.BROWSER }}"
+    echo "TEST TYPE : ${{ parameters.TEST_TYPE }}"
+    echo "SKIP TEST : ${{ parameters.SKIP_TESTS }}"
+    echo "================================================="
+  displayName: 'INITIALIZE'
+
+
+# ------------------------------------------------------------
+# JAVA VERSION
+# ------------------------------------------------------------
+
+- script: |
+    java -version
+    mvn -version
+  displayName: 'VERIFY JAVA AND MAVEN'
+
+
+# ------------------------------------------------------------
+# BUILD PROJECT
+# ------------------------------------------------------------
+
+- task: Maven@4
+  displayName: 'BUILD PROJECT'
+  inputs:
+    mavenPomFile: 'pom.xml'
+    goals: 'clean compile'
+    mavenOptions: '-Xmx3072m'
+
+    javaHomeOption: 'JDKVersion'
+    jdkVersionOption: '1.21'
+    jdkArchitectureOption: 'x64'
+
+    publishJUnitResults: false
+
+
+# ============================================================
+# EXECUTE STUDENT MODULE
+# ============================================================
+
+- task: Maven@4
+  displayName: 'Execute Student Module'
+  condition: |
+    and(
+      succeeded(),
+      eq('${{ parameters.SKIP_TESTS }}', 'false'),
+      eq('${{ parameters.TEST_TYPE }}', 'MSIT_STUDENT_MODULE')
+    )
+
+  inputs:
+    mavenPomFile: 'pom.xml'
+
+    goals: 'test'
+
+    options: >
+      -Dbrowser=${{ lower(parameters.BROWSER) }}
+      -Denv=${{ parameters.ENV }}
+      -Duser.timezone=Asia/Kolkata
+      -DsuiteXmlFile=src/test/resources/student_module.xml
+
+    javaHomeOption: 'JDKVersion'
+    jdkVersionOption: '1.21'
+    jdkArchitectureOption: 'x64'
+
+    publishJUnitResults: true
+    testResultsFiles: '**/surefire-reports/TEST-*.xml'
+
+  continueOnError: true
+
+
+# ============================================================
+# EXECUTE EMPLOYEE MODULE
+# ============================================================
+
+- task: Maven@4
+  displayName: 'Execute Employee Module'
+  condition: |
+    and(
+      succeeded(),
+      eq('${{ parameters.SKIP_TESTS }}', 'false'),
+      eq('${{ parameters.TEST_TYPE }}', 'MSIT_EMPLOYEE_MODULE')
+    )
+
+  inputs:
+    mavenPomFile: 'pom.xml'
+
+    goals: 'test'
+
+    options: >
+      -Dbrowser=${{ lower(parameters.BROWSER) }}
+      -Denv=${{ parameters.ENV }}
+      -Duser.timezone=Asia/Kolkata
+      -DsuiteXmlFile=src/test/resources/employee_module.xml
+
+    javaHomeOption: 'JDKVersion'
+    jdkVersionOption: '1.21'
+    jdkArchitectureOption: 'x64'
+
+    publishJUnitResults: true
+    testResultsFiles: '**/surefire-reports/TEST-*.xml'
+
+  continueOnError: true
+
+
+# ============================================================
+# EXECUTE CLASS MODULE
+# ============================================================
+
+- task: Maven@4
+  displayName: 'Execute Class Module'
+  condition: |
+    and(
+      succeeded(),
+      eq('${{ parameters.SKIP_TESTS }}', 'false'),
+      eq('${{ parameters.TEST_TYPE }}', 'MSIT_CLASS_MODULE')
+    )
+
+  inputs:
+    mavenPomFile: 'pom.xml'
+
+    goals: 'test'
+
+    options: >
+      -Dbrowser=${{ lower(parameters.BROWSER) }}
+      -Denv=${{ parameters.ENV }}
+      -Duser.timezone=Asia/Kolkata
+      -DsuiteXmlFile=src/test/resources/class.xml
+
+    javaHomeOption: 'JDKVersion'
+    jdkVersionOption: '1.21'
+    jdkArchitectureOption: 'x64'
+
+    publishJUnitResults: true
+    testResultsFiles: '**/surefire-reports/TEST-*.xml'
+
+  continueOnError: true
+
+
+# ============================================================
+# EXECUTE EXAM MODULE
+# ============================================================
+
+- task: Maven@4
+  displayName: 'Execute Exam Module'
+  condition: |
+    and(
+      succeeded(),
+      eq('${{ parameters.SKIP_TESTS }}', 'false'),
+      eq('${{ parameters.TEST_TYPE }}', 'MSIT_EXAM_MODULE')
+    )
+
+  inputs:
+    mavenPomFile: 'pom.xml'
+
+    goals: 'test'
+
+    options: >
+      -Dbrowser=${{ lower(parameters.BROWSER) }}
+      -Denv=${{ parameters.ENV }}
+      -Duser.timezone=Asia/Kolkata
+      -DsuiteXmlFile=src/test/resources/exam.xml
+
+    javaHomeOption: 'JDKVersion'
+    jdkVersionOption: '1.21'
+    jdkArchitectureOption: 'x64'
+
+    publishJUnitResults: true
+    testResultsFiles: '**/surefire-reports/TEST-*.xml'
+
+  continueOnError: true
+
+
+# ============================================================
+# EXECUTE COMBINED SUITE
+# ============================================================
+
+- task: Maven@4
+  displayName: 'Execute Combined Suite'
+  condition: |
+    and(
+      succeeded(),
+      eq('${{ parameters.SKIP_TESTS }}', 'false'),
+      eq('${{ parameters.TEST_TYPE }}', 'MSIT_COMBINED_SUITE')
+    )
+
+  inputs:
+    mavenPomFile: 'pom.xml'
+
+    goals: 'test'
+
+    options: >
+      -Dbrowser=${{ lower(parameters.BROWSER) }}
+      -Denv=${{ parameters.ENV }}
+      -Duser.timezone=Asia/Kolkata
+      -DsuiteXmlFile=src/test/resources/combined.xml
+
+    javaHomeOption: 'JDKVersion'
+    jdkVersionOption: '1.21'
+    jdkArchitectureOption: 'x64'
+
+    publishJUnitResults: true
+    testResultsFiles: '**/surefire-reports/TEST-*.xml'
+
+  continueOnError: true
+
+
+# ============================================================
+# PUBLISH EXTENT REPORT
+# ============================================================
+
+- task: PublishPipelineArtifact@1
+  displayName: 'Publish Extent Report'
+  condition: always()
+
+  inputs:
+    targetPath: 'reports'
+    artifact: 'Extent-Report'
+
+  continueOnError: true
+
+
+# ============================================================
+# PUBLISH SCREENSHOTS
+# ============================================================
+
+- task: PublishPipelineArtifact@1
+  displayName: 'Publish Screenshots'
+  condition: always()
+
+  inputs:
+    targetPath: 'screenshots'
+    artifact: 'Automation-Screenshots'
+
+  continueOnError: true
+
+
+# ============================================================
+# PUBLISH LOGS
+# ============================================================
+
+- task: PublishPipelineArtifact@1
+  displayName: 'Publish Automation Logs'
+  condition: always()
+
+  inputs:
+    targetPath: 'logs'
+    artifact: 'Automation-Logs'
+
+  continueOnError: true

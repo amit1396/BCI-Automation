@@ -1,0 +1,32 @@
+# --- Maven Build & Output Directories ---
+/target/
+/test-output/
+build/
+
+# --- Allure Test Artifacts ---
+/.allure/
+/allure-results/
+/allure-report/
+
+# --- Playwright State & Credentials ---
+auth.json
+state.json
+
+# --- Test Logs & Reports ---
+/logs/
+/reports/
+/screenshots/
+/videos/
+*.log
+
+# --- IntelliJ IDEA ---
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# --- Operating System Files ---
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,304 @@
+pipeline {
+
+    agent {
+        node {
+            label 'built-in'
+            customWorkspace 'C:\\Project Directory'
+        }
+    }
+
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        disableConcurrentBuilds()
+        skipDefaultCheckout()
+        timeout(time: 60, unit: 'MINUTES')
+    }
+
+    triggers {
+        cron('30 23 * * *')
+    }
+
+    tools {
+        maven 'MAVEN1 setup in system'
+    }
+
+    environment {
+        PROJECT        = "AUTOMATION PROJECT NAME"
+        REPORT_NAME    = "Extent-Report"
+        DASHBOARD_NOTE = 'Dashboard Notes'
+        EMAIL_LIST     = 'your-email@example.com'
+
+        GIT_REPO_URL   = 'git hub repo url'
+        GIT_BRANCH     = 'master'
+        GIT_CRED_ID    = 'github-pat'
+    }
+
+    parameters {
+        choice(
+            name: 'ENV',
+            choices: ['QA', 'UAT', 'PROD'],
+            description: '🌍 Target Environment'
+        )
+
+        choice(
+            name: 'TEST_TYPE',
+            choices: [
+                'STUDENT_MODULE',
+                'EMPLOYEE_MODULE',
+                'CLASS_MODULE'
+            ],
+            description: '🧪 Test Suite'
+        )
+
+        // --- Multi-Choice Browser Checkboxes ---
+        booleanParam(name: 'RUN_CHROME', defaultValue: true, description: '🟢 Run on Chrome')
+        booleanParam(name: 'RUN_EDGE', defaultValue: false, description: '🔵 Run on Edge')
+        booleanParam(name: 'RUN_FIREFOX', defaultValue: false, description: '🦊 Run on Firefox')
+        booleanParam(name: 'RUN_SAFARI', defaultValue: false, description: '🧭 Run on Safari')
+
+        booleanParam(
+            name: 'SKIP_TESTS',
+            defaultValue: false,
+            description: '⏭️ Build only — skip test execution'
+        )
+    }
+
+    stages {
+
+        stage('🎯 INITIALIZE') {
+            steps {
+                script {
+                    def activeBrowsers = []
+                    if (params.RUN_CHROME) activeBrowsers.add('Chrome')
+                    if (params.RUN_EDGE) activeBrowsers.add('Edge')
+                    if (params.RUN_FIREFOX) activeBrowsers.add('Firefox')
+                    if (params.RUN_SAFARI) activeBrowsers.add('Safari')
+
+                    echo """
+=================================================
+PROJECT   : ${PROJECT}
+ENV       : ${params.ENV}
+BROWSERS  : ${activeBrowsers.join(', ')}
+TEST TYPE : ${params.TEST_TYPE}
+SKIP TEST : ${params.SKIP_TESTS}
+=================================================
+"""
+                }
+            }
+        }
+
+        stage('🧹 CLEAN WORKSPACE') {
+            steps {
+                deleteDir()
+            }
+        }
+
+        stage('📥 CHECKOUT CODE') {
+            steps {
+                git branch: "${GIT_BRANCH}",
+                    credentialsId: "${GIT_CRED_ID}",
+                    url: "${GIT_REPO_URL}"
+
+                script {
+                    if (!fileExists('pom.xml')) {
+                        error "ERROR: pom.xml was not found after checkout."
+                    }
+                }
+            }
+        }
+
+        stage('🔧 BUILD PROJECT') {
+            steps {
+                bat 'mvn -q clean compile'
+            }
+        }
+
+        stage('🚀 EXECUTE TESTS IN PARALLEL') {
+            when {
+                expression { return !params.SKIP_TESTS }
+            }
+
+            steps {
+                script {
+                    def suiteFiles = [
+                        'STUDENT_MODULE'  : 'src/test/resources/student_module.xml',
+                        'EMPLOYEE_MODULE' : 'src/test/resources/employee_module.xml',
+                        'CLASS_MODULE'    : 'src/test/resources/class.xml'
+                    ]
+
+                    def selectedSuite = suiteFiles[params.TEST_TYPE]
+                    if (!selectedSuite) { error "No suite XML mapping found for ${params.TEST_TYPE}" }
+                    if (!fileExists(selectedSuite)) { error "Suite XML file does not exist: ${selectedSuite}" }
+
+                    def browsersToRun = []
+                    if (params.RUN_CHROME) browsersToRun.add('Chrome')
+                    if (params.RUN_EDGE) browsersToRun.add('Edge')
+                    if (params.RUN_FIREFOX) browsersToRun.add('Firefox')
+                    if (params.RUN_SAFARI) browsersToRun.add('Safari')
+
+                    if (browsersToRun.isEmpty()) {
+                        error "❌ Build aborted: You must select at least one browser to run tests."
+                    }
+
+                    def parallelTests = [:]
+
+                    browsersToRun.each { browser ->
+                        parallelTests[browser] = {
+                            stage("Browser: ${browser}") {
+                                echo "Executing TestNG suite: ${selectedSuite} on ${browser}"
+                                try {
+                                    bat """
+                                        mvn test ^
+                                        -Dbrowser=${browser} ^
+                                        -Denv=${params.ENV} ^
+                                        -DsuiteXmlFile=${selectedSuite} ^
+                                        -Dreport.dir=reports/${browser}
+                                    """
+                                } catch (Exception e) {
+                                    echo "Tests failed for suite: ${selectedSuite} on ${browser}"
+                                    currentBuild.result = 'UNSTABLE'
+                                }
+                            }
+                        }
+                    }
+
+                    parallel parallelTests
+                }
+            }
+        }
+
+        stage('📦 ARCHIVE & ZIP REPORTS') {
+            when {
+                expression { return !params.SKIP_TESTS }
+            }
+            steps {
+                script {
+                    if (fileExists('reports')) {
+                        zip zipFile: 'Test-Execution-Reports.zip', dir: 'reports', archive: true
+                        echo "Reports successfully zipped and archived!"
+                    } else {
+                        echo "No 'reports' directory found to zip."
+                    }
+                }
+            }
+        }
+
+        stage('📊 PUBLISH EXTENT REPORT') {
+            when {
+                expression { return !params.SKIP_TESTS }
+            }
+            steps {
+                publishHTML(target: [
+                    reportDir            : 'reports',
+                    reportFiles          : '**/*.html',
+                    reportName           : "${REPORT_NAME}",
+                    keepAll              : true,
+                    alwaysLinkToLastBuild: true,
+                    allowMissing         : true
+                ])
+            }
+        }
+    }
+
+    post {
+        always {
+            junit allowEmptyResults: true, testResults: '**/target/surefire-reports/*.xml'
+            archiveArtifacts artifacts: 'reports/**/*.html, logs/**/*.log, screenshots/**, **/target/surefire-reports/**',
+                             allowEmptyArchive: true
+        }
+
+        success {
+            script {
+                sendTeamsNotification('2E7D32', '✅ Parallel Execution Successful', 'All selected browser tests passed successfully.')
+            }
+            emailext(
+                to          : "${EMAIL_LIST}",
+                subject     : "✅ ${PROJECT} | SUCCESS | ${params.TEST_TYPE} | Build #${BUILD_NUMBER}",
+                mimeType    : 'text/html',
+                attachLog   : false,
+                attachmentsPattern: 'Test-Execution-Reports.zip, logs/*.log',
+                body        : "<h2 style='color:#2e7d32;'>Execution Successful</h2><p>Build #${BUILD_NUMBER} completed successfully.</p><p><a href='${BUILD_URL}artifact/Test-Execution-Reports.zip'>📥 Download All Browser Reports (ZIP)</a></p>"
+            )
+        }
+
+        unstable {
+            script {
+                sendTeamsNotification('E65100', '⚠️ Execution Completed with Failures', 'Some tests failed during parallel execution. Check reports for details.')
+            }
+            emailext(
+                to          : "${EMAIL_LIST}",
+                subject     : "⚠️ ${PROJECT} | UNSTABLE | ${params.TEST_TYPE} | Build #${BUILD_NUMBER}",
+                mimeType    : 'text/html',
+                attachLog   : false,
+                attachmentsPattern: 'Test-Execution-Reports.zip, logs/*.log',
+                body        : "<h2 style='color:#e65100;'>Execution Unstable</h2><p>Build #${BUILD_NUMBER} had test failures.</p><p><a href='${BUILD_URL}artifact/Test-Execution-Reports.zip'>📥 Download All Browser Reports (ZIP)</a></p>"
+            )
+        }
+
+        failure {
+            script {
+                sendTeamsNotification('C62828', '❌ Execution Failed', 'The pipeline failed to complete successfully.')
+            }
+            emailext(
+                to          : "${EMAIL_LIST}",
+                subject     : "❌ ${PROJECT} | FAILED | ${params.TEST_TYPE} | Build #${BUILD_NUMBER}",
+                mimeType    : 'text/html',
+                attachLog   : false,
+                attachmentsPattern: 'Test-Execution-Reports.zip, logs/*.log',
+                body        : "<h2 style='color:#c62828;'>Execution Failed</h2><p>Build #${BUILD_NUMBER} failed.</p>"
+            )
+        }
+    }
+}
+
+// ==========================================
+// HELPER FUNCTION: Microsoft Teams Webhook
+// ==========================================
+def sendTeamsNotification(statusColor, statusTitle, statusText) {
+    withCredentials([string(credentialsId: 'teams-webhook-url', variable: 'WEBHOOK_URL')]) {
+        def jsonPayload = """
+        {
+            "@type": "MessageCard",
+            "@context": "http://schema.org/extensions",
+            "themeColor": "${statusColor}",
+            "summary": "${PROJECT} Build Status",
+            "sections": [{
+                "activityTitle": "${statusTitle}",
+                "activitySubtitle": "Project: ${PROJECT} | Environment: ${params.ENV}",
+                "facts": [
+                    {"name": "Build Number:", "value": "#${BUILD_NUMBER}"},
+                    {"name": "Test Suite:", "value": "${params.TEST_TYPE}"},
+                    {"name": "Details:", "value": "${statusText}"}
+                ],
+                "markdown": true
+            }],
+            "potentialAction": [
+                {
+                    "@type": "OpenUri",
+                    "name": "🔗 Open Jenkins Build",
+                    "targets": [{"os": "default", "uri": "${BUILD_URL}"}]
+                },
+                {
+                    "@type": "OpenUri",
+                    "name": "📥 Download Reports (ZIP)",
+                    "targets": [{"os": "default", "uri": "${BUILD_URL}artifact/Test-Execution-Reports.zip"}]
+                }
+            ]
+        }
+        """
+
+        try {
+            httpRequest(
+                httpMode: 'POST',
+                contentType: 'APPLICATION_JSON',
+                requestBody: jsonPayload,
+                url: "${WEBHOOK_URL}",
+                validResponseCodes: '200,201,202'
+            )
+            echo "Teams notification sent successfully."
+        } catch (Exception e) {
+            echo "Failed to send Teams notification: ${e.message}"
+        }
+    }
+}
